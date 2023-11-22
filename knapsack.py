@@ -11,12 +11,19 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
+
+#pip install streamlit
+
+
+
 import os
 import itertools
 import click
 import pandas as pd
 from dwave.system import LeapHybridCQMSampler
 from dimod import ConstrainedQuadraticModel, BinaryQuadraticModel, QuadraticModel
+import pickle
 
 def parse_inputs(data_file, capacity):
     """Parse user input and files for data to build CQM.
@@ -95,6 +102,14 @@ def parse_solution(sampleset, costs, weights):
     selected_weights = list(weights.loc[selected_item_indices])
     selected_costs = list(costs.loc[selected_item_indices])
 
+    # save results for testing
+    # Open a file in binary write mode
+    with open('selected_weights.pkl', 'wb') as file:
+        pickle.dump(selected_weights, file)
+    
+    with open('selected_costs.pkl', 'wb') as file:
+        pickle.dump(selected_costs, file)
+
     print("\nFound best solution at energy {}".format(best.energy))
     print("\nSelected item numbers (0-indexed):", selected_item_indices)
     print("\nSelected item weights: {}, total = {}".format(selected_weights, sum(selected_weights)))
@@ -128,12 +143,8 @@ Default is to run on data/large.csv.
 
 filename_help = datafile_help()     # Format the help string for the --filename argument
 
-@click.command()
-@click.option('--filename', type=click.File(), default='data/large.csv',
-              help=filename_help)
-@click.option('--capacity', default=None,
-              help="Maximum weight for the container. By default sets to 80% of the total.")
-def main(filename, capacity):
+
+def runSolver(filename, capacity):
     """Solve a knapsack problem using a CQM solver."""
 
     sampler = LeapHybridCQMSampler()
@@ -147,5 +158,49 @@ def main(filename, capacity):
 
     parse_solution(sampleset, costs, weights)
 
-if __name__ == '__main__':
-    main()
+
+
+#runSolver()
+
+# Open the file in binary read mode
+with open('selected_weights.pkl', 'rb') as file:
+    selected_weights = pickle.load(file)
+
+with open('selected_costs.pkl', 'rb') as file:
+    selected_costs = pickle.load(file)  
+
+print(selected_weights) 
+print(selected_costs)
+
+
+
+## UI Section
+
+import streamlit as st
+import pandas as pd
+import os
+
+# File names
+file_names = ['very_small.csv', 'small.csv', 'large.csv', 'very_large.csv', 'huge.csv']
+
+# Path to the data folder
+data_folder = 'data'
+
+# Add a dropdown in the sidebar to select the file
+selected_file = st.sidebar.selectbox("Select a file", file_names)
+
+# Full path to the selected file
+file_path = os.path.join(data_folder, selected_file)
+
+# Read the selected file
+if os.path.exists(file_path):
+    data = pd.read_csv(file_path, header=None, names=['weights', 'values'])
+    # Rest of your code...
+    max_weight = st.number_input("Enter the maximum weight", min_value=100)
+
+    if st.button('Solve Knapsack'):
+        selected_items = runSolver(file_path, max_weight)
+        # Display the selected items
+else:
+    st.error(f"File not found: {file_path}")
+
