@@ -14,6 +14,9 @@
 
 
 #pip install streamlit
+#pip install plotly-express
+
+# streamlit run /workspaces/knapsack/knapsack.py
 
 
 
@@ -22,8 +25,10 @@ import itertools
 import click
 import pandas as pd
 from dwave.system import LeapHybridCQMSampler
-from dimod import ConstrainedQuadraticModel, BinaryQuadraticModel, QuadraticModel
+from dimod import ConstrainedQuadraticModel, BinaryQuadraticModel, QuadraticModel  
 import pickle
+import plotly.express as px
+import time
 
 def parse_inputs(data_file, capacity):
     """Parse user input and files for data to build CQM.
@@ -189,34 +194,55 @@ import streamlit as st
 st.set_page_config(layout="wide")
 
 # Page title and description
-st.title("Military Asset Optimization Dashboard")
+st.title("Asset Optimization Dashboard")
 st.markdown("""
-This application utilizes Weighted Goal Programming (WGP) to optimize military asset allocation.
+This application utilizes Weighted Goal Programming (WGP) to optimize asset allocation.
 It helps in making informed decisions about resource allocation by balancing multiple goals,
-such as budget adherence, procurement efficiency, and capability enhancement.
+such as budget adherence, procurement efficiency, and capability enhancement.  The goal: Integration of Informational
+and Physical Power.
 """)
 
 
 # Custom CSS for styling
 st.markdown("""
 <style>
-    /* Add your CSS styling here */
+    /* Import Fira Code Font */
+    @import url('https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500&display=swap');
+
+    /* Apply Fira Code Font to the entire app */
+    html, body, [class*="css"] {
+        font-family: 'Fira Code', monospace;
+    }
+
+    /* Dark Background */
     .css-18e3th9 {
-        background-color: #f4f4f2; /* Background color */
-        color: #333; /* Text Color */
+        background-color: #1e1e1e; /* Dark background color */
+        color: #ffffff; /* Light text color for contrast */
     }
+
+    /* Adjusting Title Color */
     h1 {
-        color: #008577; /* Title Color */
+        color: #4CAF50; /* Modern green */
     }
+
     /* Custom style for buttons */
     .stButton>button {
-        color: white;
-        background-color: #008577;
+        color: #ffffff;
+        background-color: #007BFF; /* Bright blue for buttons */
         border-radius: 5px;
+        border: none; /* Remove default border */
     }
+
+    /* Table styling for dark theme */
+    .stDataFrame {
+        background-color: #2e2e2e; /* Slightly lighter than the main background */
+        color: #ffffff;
+    }
+
+    /* Additional styling can go here */
+
 </style>
 """, unsafe_allow_html=True)
-
 
 # File names
 file_names = ['very_small.csv', 'small.csv', 'large.csv', 'very_large.csv', 'huge.csv']
@@ -225,54 +251,95 @@ file_names = ['very_small.csv', 'small.csv', 'large.csv', 'very_large.csv', 'hug
 data_folder = 'data'
 
 # Add a dropdown in the sidebar to select the file
-selected_file = st.sidebar.selectbox("Select a file", file_names)
+selected_file = st.sidebar.selectbox("Select an example file", file_names)
 
 # Full path to the selected file
 file_path = os.path.join(data_folder, selected_file)
 
-# Read the selected file
 if os.path.exists(file_path):
-    data = pd.read_csv(file_path, header=None, names=['weights', 'values'])
-    # Rest of your code...
-    max_weight = st.number_input("Enter the maximum weight", min_value=100)
+    # Read file without headers
+    data = pd.read_csv(file_path, header=None, names=['Value', 'Cost'])
 
-    if st.button('Solve Knapsack'):
+    # Create an 'Item' column with sequential numbers
+    data['Item'] = range(1, len(data) + 1)
+
+    # Reorder the columns to 'Item', 'Value', 'Cost'
+    data = data[['Item', 'Value', 'Cost']]
+
+    # Calculate 75% of the sum of the Cost values
+    seventy_five_percent_cost = round(0.75 * data['Cost'].sum())
+
+    # Display in the sidebar
+    st.sidebar.markdown("### 75% Default")
+    st.sidebar.text(f"{seventy_five_percent_cost}")  # Display with 2 decimal places
+
+    max_weight = st.number_input("Enter the maximum weight", value=seventy_five_percent_cost)
+
+    if st.button('Solve WGP Model'):
+
+        start_time = time.time()
+
         try:
-            selected_indices, selected_weights, selected_costs = runSolver(file_path, max_weight)
+            selected_indices, selected_values, selected_costs = runSolver(file_path, max_weight)
 
-            # Create a DataFrame
+            # Calculate and display runtime
+            runtime = time.time() - start_time  # End time after calling runSolver
+            st.sidebar.markdown("### Runtime of Solver")
+            st.sidebar.text(f"{runtime:.2f} seconds")  # Display runtime in seconds
+
+            # Create a DataFrame for the selected items
             output_df = pd.DataFrame({
                 'Item Index': selected_indices,
-                'Value': selected_costs,
-                'Cost': selected_weights
+                'Value': selected_values,
+                'Cost': selected_costs
             })
 
             st.subheader('Optimization Results')
+
+            data['parents'] = ''  # This creates a column with empty strings, meaning no parent node
+
+
+            # Correctly mark selected items
+            data['IsSelected'] = data.index.isin(selected_indices)
+
+            # Creating a 'Label' column for displaying text on the treemap
+            data['Label'] = data['Cost'].astype(str)
+
+            # Create the treemap
+            fig_selected = px.treemap(
+                data,
+                path=['parents', 'Item'],  # Use the new 'parents' column here
+                values='Value',  # Size of the box based on 'Value'
+                color='IsSelected',  # Color based on selection status
+                color_discrete_map={True: 'darkgreen', False: 'darkred'},  # Color mapping
+                title="Selected Items: Highlighted",
+            )
+
+            fig_selected.update_traces(
+                textinfo="label+text+value",
+                texttemplate='%{label}<br>%{customdata[0]}',  # Custom text template
+                customdata=data[['Label']],  # Data to be used in the text template
+                hovertemplate="<b>%{label}</b><br>Cost: %{customdata[0]}<br>Value: %{value}<extra></extra>",
+                marker=dict(line=dict(width=2, color='rgba(48, 48, 48, 1)'))  # Set line color to dark gray
+
+            )
+
+            fig_selected.update_layout(margin=dict(t=50, l=25, r=25, b=25), width=800, height=800)
+            
+
+            st.plotly_chart(fig_selected)
+
             st.write('The following table displays the selected items, their values, and costs:')
-            st.dataframe(output_df)
-
-
-            total_value = sum(selected_costs)
-            total_cost = sum(selected_weights)
-            st.metric(label="Total Value", value=f"{total_value}")
-            st.metric(label="Total Cost", value=f"${total_cost} for the budget of ${max_weight}")
-
-
-            st.bar_chart(output_df.set_index('Item Index')[['Value', 'Cost']])
-
-
-            st.write("Selected Items:")
-            st.write("Indices:", selected_indices)
-            st.write("Weights:", selected_weights)
-            st.write("Total Weight:", sum(selected_weights))
-            st.write("Costs:", selected_costs)
-            st.write("Total Cost:", sum(selected_costs))
+            st.markdown(output_df.to_html(index=False), unsafe_allow_html=True)
 
         except ValueError as e:
             st.error(str(e))
+
+
+
+
 else:
     st.error(f"File not found: {file_path}")
-
 
 
 
