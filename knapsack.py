@@ -115,6 +115,8 @@ def parse_solution(sampleset, costs, weights):
     print("\nSelected item weights: {}, total = {}".format(selected_weights, sum(selected_weights)))
     print("\nSelected item costs: {}, total = {}".format(selected_costs, sum(selected_costs)))
 
+    return selected_item_indices, selected_weights, selected_costs
+
 def datafile_help(max_files=5):
     """Provide content of input file names and total weights for click()'s --help."""
 
@@ -145,7 +147,7 @@ filename_help = datafile_help()     # Format the help string for the --filename 
 
 
 def runSolver(filename, capacity):
-    """Solve a knapsack problem using a CQM solver."""
+    """Solve a knapsack problem using a CQM solver and return the selected items."""
 
     sampler = LeapHybridCQMSampler()
 
@@ -156,7 +158,9 @@ def runSolver(filename, capacity):
     print("Submitting CQM to solver {}.".format(sampler.solver.name))
     sampleset = sampler.sample_cqm(cqm, label='Example - Knapsack')
 
-    parse_solution(sampleset, costs, weights)
+    selected_item_indices, selected_weights, selected_costs = parse_solution(sampleset, costs, weights)
+
+    return selected_item_indices, selected_weights, selected_costs
 
 
 
@@ -180,6 +184,40 @@ import streamlit as st
 import pandas as pd
 import os
 
+import streamlit as st
+
+st.set_page_config(layout="wide")
+
+# Page title and description
+st.title("Military Asset Optimization Dashboard")
+st.markdown("""
+This application utilizes Weighted Goal Programming (WGP) to optimize military asset allocation.
+It helps in making informed decisions about resource allocation by balancing multiple goals,
+such as budget adherence, procurement efficiency, and capability enhancement.
+""")
+
+
+# Custom CSS for styling
+st.markdown("""
+<style>
+    /* Add your CSS styling here */
+    .css-18e3th9 {
+        background-color: #f4f4f2; /* Background color */
+        color: #333; /* Text Color */
+    }
+    h1 {
+        color: #008577; /* Title Color */
+    }
+    /* Custom style for buttons */
+    .stButton>button {
+        color: white;
+        background-color: #008577;
+        border-radius: 5px;
+    }
+</style>
+""", unsafe_allow_html=True)
+
+
 # File names
 file_names = ['very_small.csv', 'small.csv', 'large.csv', 'very_large.csv', 'huge.csv']
 
@@ -199,8 +237,43 @@ if os.path.exists(file_path):
     max_weight = st.number_input("Enter the maximum weight", min_value=100)
 
     if st.button('Solve Knapsack'):
-        selected_items = runSolver(file_path, max_weight)
-        # Display the selected items
+        try:
+            selected_indices, selected_weights, selected_costs = runSolver(file_path, max_weight)
+
+            # Create a DataFrame
+            output_df = pd.DataFrame({
+                'Item Index': selected_indices,
+                'Value': selected_costs,
+                'Cost': selected_weights
+            })
+
+            st.subheader('Optimization Results')
+            st.write('The following table displays the selected items, their values, and costs:')
+            st.dataframe(output_df)
+
+
+            total_value = sum(selected_costs)
+            total_cost = sum(selected_weights)
+            st.metric(label="Total Value", value=f"{total_value}")
+            st.metric(label="Total Cost", value=f"${total_cost} for the budget of ${max_weight}")
+
+
+            st.bar_chart(output_df.set_index('Item Index')[['Value', 'Cost']])
+
+
+            st.write("Selected Items:")
+            st.write("Indices:", selected_indices)
+            st.write("Weights:", selected_weights)
+            st.write("Total Weight:", sum(selected_weights))
+            st.write("Costs:", selected_costs)
+            st.write("Total Cost:", sum(selected_costs))
+
+        except ValueError as e:
+            st.error(str(e))
 else:
     st.error(f"File not found: {file_path}")
+
+
+
+
 
